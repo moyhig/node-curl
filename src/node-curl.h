@@ -3,6 +3,7 @@
 
 #include <v8.h>
 #include <node.h>
+#include <nan.h>
 #include <node_buffer.h>
 #include <curl/curl.h>
 #include <map>
@@ -94,7 +95,7 @@ class NodeCurlHttppost
 	}
 };
 
-class NodeCurl
+class NodeCurl : public node::ObjectWrap
 {
 	struct CurlOption
 	{
@@ -121,10 +122,14 @@ class NodeCurl
 	: in_curlm(false)
 	{
 		++count;
+#if 0
 		v8::V8::AdjustAmountOfExternalAllocatedMemory(2*4096);
-		object->SetPointerInInternalField(0, this);
-		handle = v8::Persistent<v8::Object>::New(object);
+#endif
+		NanSetInternalFieldPointer(object, 0, this);
+		NanAssignPersistent(v8::Object, handle, object);
+#if 0
 		handle.MakeWeak(this, destructor);
+#endif
 
 		curl = curl_easy_init();
 		if (!curl)
@@ -142,7 +147,9 @@ class NodeCurl
 	~NodeCurl()
 	{
 		--count;
+#if 0
 		v8::V8::AdjustAmountOfExternalAllocatedMemory(-2*4096);
+#endif
 		if (curl)
 		{
 			if (in_curlm)
@@ -161,32 +168,37 @@ class NodeCurl
 		}
 	}
 
+#if 0
 	static void destructor(v8::Persistent<v8::Value> value, void *data)
 	{
 		v8::Handle<v8::Object> object = value->ToObject();
 		NodeCurl * curl = (NodeCurl*)object->GetPointerFromInternalField(0);
 		curl->close();
 	}
+#endif
 
 	void close()
 	{
-		handle->SetPointerInInternalField(0, NULL);
+#if 0
+		NanSetInternalFieldPointer(handle, 0, NULL);
 		handle.Dispose();
+#endif
 		delete this;
 	}
 
-	static v8::Handle<v8::Value> close(const v8::Arguments & args)
+	static NAN_METHOD(close)
 	{
+		NanScope();
 		NodeCurl * node_curl = unwrap(args.This());
 		if (node_curl)
 			node_curl->close();
-		return args.This();
+		NanReturnValue(args.This());
 	}
 
 
 	static NodeCurl * unwrap(v8::Handle<v8::Object> value)
 	{
-		return (NodeCurl*)value->GetPointerFromInternalField(0);
+		return (NodeCurl*)NanGetInternalFieldPointer(value, 0);
 	}
 
 	// curl write function mapping
@@ -206,13 +218,12 @@ class NodeCurl
 
 	size_t on_write(char *data, size_t n)
 	{
-		static v8::Persistent<v8::String> SYM_ON_WRITE = v8::Persistent<v8::String>::New(v8::String::NewSymbol("on_write"));
-		v8::Handle<v8::Value> cb = handle->Get(SYM_ON_WRITE);
+		static NanInitPersistent(v8::String, SYM_ON_WRITE, NanSymbol("on_write"));
+		v8::Local<v8::Value> cb = NanPersistentToLocal(handle)->Get(NanPersistentToLocal(SYM_ON_WRITE));
 		if (cb->IsFunction())
 		{
-			node::Buffer * buffer = node::Buffer::New(data, n);
-			v8::Handle<v8::Value> argv[] = { buffer->handle_ };
-			v8::Handle<v8::Value> rt = cb->ToObject()->CallAsFunction(handle, 1, argv);
+			v8::Handle<v8::Value> argv[] = { NanNewBufferHandle((char *)data, n) };
+			v8::Handle<v8::Value> rt = cb.As<v8::Function>()->Call(NanPersistentToLocal(handle), 1, argv);
 			if (rt.IsEmpty())
 				return 0;
 			else
@@ -223,13 +234,12 @@ class NodeCurl
 
 	size_t on_header(char *data, size_t n)
 	{
-		static v8::Persistent<v8::String> SYM_ON_HEADER = v8::Persistent<v8::String>::New(v8::String::NewSymbol("on_header"));
-		v8::Handle<v8::Value> cb = handle->Get(SYM_ON_HEADER);
+		static NanInitPersistent(v8::String, SYM_ON_HEADER, NanSymbol("on_header"));
+		v8::Local<v8::Value> cb = NanPersistentToLocal(handle)->Get(NanPersistentToLocal(SYM_ON_HEADER));
 		if (cb->IsFunction())
 		{
-			node::Buffer * buffer = node::Buffer::New(data, n);
-			v8::Handle<v8::Value> argv[] = { buffer->handle_ };
-			v8::Handle<v8::Value> rt = cb->ToObject()->CallAsFunction(handle, 1, argv);
+			v8::Handle<v8::Value> argv[] = { NanNewBufferHandle((char *)data, n) };
+			v8::Handle<v8::Value> rt = cb.As<v8::Function>()->Call(NanPersistentToLocal(handle), 1, argv);
 			if (rt.IsEmpty())
 				return 0;
 			else
@@ -240,65 +250,123 @@ class NodeCurl
 
 	void on_end(CURLMsg *msg)
 	{
-		static v8::Persistent<v8::String> SYM_ON_END = v8::Persistent<v8::String>::New(v8::String::NewSymbol("on_end"));
-		v8::Handle<v8::Value> cb = handle->Get(SYM_ON_END);
+		static NanInitPersistent(v8::String, SYM_ON_END, NanSymbol("on_end"));
+		v8::Local<v8::Value> cb = NanPersistentToLocal(handle)->Get(NanPersistentToLocal(SYM_ON_END));
 		if (cb->IsFunction())
 		{
 			v8::Handle<v8::Value> argv[] = {};
-			cb->ToObject()->CallAsFunction(handle, 0, argv);
+			cb.As<v8::Function>()->Call(NanPersistentToLocal(handle), 0, argv);
 		}
 	}
 
 	void on_error(CURLMsg *msg)
 	{
-		static v8::Persistent<v8::String> SYM_ON_ERROR = v8::Persistent<v8::String>::New(v8::String::NewSymbol("on_error"));
-		v8::Handle<v8::Value> cb = handle->Get(SYM_ON_ERROR);
+		static NanInitPersistent(v8::String, SYM_ON_ERROR, NanSymbol("on_error"));
+		v8::Local<v8::Value> cb = NanPersistentToLocal(handle)->Get(NanPersistentToLocal(SYM_ON_ERROR));
 		if (cb->IsFunction())
 		{
-			v8::Handle<v8::Value> argv[] = {v8::Exception::Error(v8::String::New(curl_easy_strerror(msg->data.result)))};
-			cb->ToObject()->CallAsFunction(handle, 1, argv);
+			v8::Handle<v8::Value> argv[] = {v8::Exception::Error(NanSymbol(curl_easy_strerror(msg->data.result)))};
+			cb.As<v8::Function>()->Call(NanPersistentToLocal(handle), 1, argv);
 		}
 	}
 
 	// curl_easy_getinfo
+#if 0
 	template<typename CType, typename JsClass>
-	static v8::Handle<v8::Value> getinfo(const v8::Arguments &args)
+	static NAN_METHOD(getinfo)
 	{
+		NanScope();
 		CType result;
 		NodeCurl * node_curl = unwrap(args.This());
 		CURLINFO info = (CURLINFO)args[0]->Int32Value();
 		CURLcode code = curl_easy_getinfo(node_curl->curl, info, &result);
 		if (code != CURLE_OK)
 		{
-			return raise("curl_easy_getinfo failed", curl_easy_strerror(code));
+			NanReturnValue(raise("curl_easy_getinfo failed", curl_easy_strerror(code)));
 		}
-		return result ? JsClass::New(result) : v8::Null();
+		if (result)
+			NanReturnValue(JsClass::New(result));
+		else
+			return v8::Null();
+	}
+#endif
+
+	static NAN_METHOD(getinfo_int)
+	{
+		NanScope();
+#if 0
+		v8::Handle<v8::Value> rt = getinfo<int, v8::Integer>(args);
+		NanReturnValue(rt);
+#else
+		int result;
+		NodeCurl * node_curl = unwrap(args.This());
+		CURLINFO info = (CURLINFO)args[0]->Int32Value();
+		CURLcode code = curl_easy_getinfo(node_curl->curl, info, &result);
+		if (code != CURLE_OK)
+		{
+			NanReturnValue(raise("curl_easy_getinfo failed", curl_easy_strerror(code)));
+		}
+		if (result)
+			NanReturnValue(v8::Number::New(result));
+		else
+			NanReturnUndefined();
+#endif
 	}
 
-	static v8::Handle<v8::Value> getinfo_int(const v8::Arguments & args)
+	static NAN_METHOD(getinfo_str)
 	{
-		return getinfo<int, v8::Integer>(args);
+		NanScope();
+#if 0
+		v8::Handle<v8::Value> rt = getinfo<char*, v8::String>(args);
+		NanReturnValue(rt);
+#else
+		char *result;
+		NodeCurl * node_curl = unwrap(args.This());
+		CURLINFO info = (CURLINFO)args[0]->Int32Value();
+		CURLcode code = curl_easy_getinfo(node_curl->curl, info, &result);
+		if (code != CURLE_OK)
+		{
+			NanReturnValue(raise("curl_easy_getinfo failed", curl_easy_strerror(code)));
+		}
+		if (result)
+			NanReturnValue(v8::String::New(result));
+		else
+			NanReturnUndefined();
+#endif
 	}
 
-	static v8::Handle<v8::Value> getinfo_str(const v8::Arguments & args)
+	static NAN_METHOD(getinfo_double)
 	{
-		return getinfo<char*,v8::String>(args);
+		NanScope();
+#if 0
+		v8::Handle<v8::Value> rt = getinfo<double, v8::Number>(args);
+		NanReturnValue(rt);
+#else
+		double result;
+		NodeCurl * node_curl = unwrap(args.This());
+		CURLINFO info = (CURLINFO)args[0]->Int32Value();
+		CURLcode code = curl_easy_getinfo(node_curl->curl, info, &result);
+		if (code != CURLE_OK)
+		{
+			NanReturnValue(raise("curl_easy_getinfo failed", curl_easy_strerror(code)));
+		}
+		if (result)
+			NanReturnValue(v8::Number::New(result));
+		else
+			NanReturnUndefined();
+#endif
 	}
 
-	static v8::Handle<v8::Value> getinfo_double(const v8::Arguments & args)
+	static NAN_METHOD(getinfo_slist)
 	{
-		return getinfo<double, v8::Number>(args);
-	}
-
-	static v8::Handle<v8::Value> getinfo_slist(const v8::Arguments & args)
-	{
+		NanScope();
 		curl_slist * slist, * cur;
 		NodeCurl* node_curl = unwrap(args.This());
 		CURLINFO info = (CURLINFO)args[0]->Int32Value();
 		CURLcode code = curl_easy_getinfo(node_curl->curl, info, &slist);
 		if (code != CURLE_OK)
 		{
-			return raise("curl_easy_getinfo failed", curl_easy_strerror(code));
+			NanReturnValue(raise("curl_easy_getinfo failed", curl_easy_strerror(code)));
 		}
 		v8::Handle<v8::Array> array = v8::Array::New();
 		if (slist)
@@ -311,14 +379,14 @@ class NodeCurl
 			}
 			curl_slist_free_all(slist);
 		}
-		return array;
+		NanReturnValue(array);
 	}
 
 	// curl_easy_setopt
 	template<typename T>
 	v8::Handle<v8::Value> setopt(v8::Handle<v8::Value> option, T value)
 	{
-		return v8::Integer::New(
+		return v8::Number::New(
 			curl_easy_setopt(
 				curl,
 				(CURLoption)option->Int32Value(),
@@ -327,13 +395,15 @@ class NodeCurl
 		);
 	}
 
-	static v8::Handle<v8::Value> setopt_int(const v8::Arguments & args)
+	static NAN_METHOD(setopt_int)
 	{
-		return unwrap(args.This())->setopt(args[0], args[1]->Int32Value());
+        NanScope();
+		NanReturnValue(unwrap(args.This())->setopt(args[0], args[1]->Int32Value()));
 	}
 
-	static v8::Handle<v8::Value> setopt_str(const v8::Arguments & args)
+	static NAN_METHOD(setopt_str)
 	{
+        NanScope();
 		// Create a string copy
 		// https://github.com/jiangmiao/node-curl/issues/3
 		NodeCurl   * node_curl = unwrap(args.This());
@@ -341,19 +411,21 @@ class NodeCurl
 		v8::String::Utf8Value value(args[1]);
 		int length = value.length();
 		node_curl->strings[key] = std::string(*value, length);
-		return unwrap(args.This())->setopt(args[0], node_curl->strings[key].c_str() );
+		NanReturnValue(unwrap(args.This())->setopt(args[0], node_curl->strings[key].c_str() ));
 	}
 
-	static v8::Handle<v8::Value> setopt_slist(const v8::Arguments & args)
+	static NAN_METHOD(setopt_slist)
 	{
+        NanScope();
 		NodeCurl   * node_curl = unwrap(args.This());
 		curl_slist * slist     = value_to_slist(args[1]);
 		node_curl->slists.push_back(slist);
-		return node_curl->setopt(args[0], slist);
+		NanReturnValue(node_curl->setopt(args[0], slist));
 	}
 
-	static v8::Handle<v8::Value> setopt_httppost(const v8::Arguments & args)
+	static NAN_METHOD(setopt_httppost)
 	{
+		NanScope();
 		NodeCurl * node_curl = unwrap(args.This());
 		NodeCurlHttppost &httppost = node_curl->httppost;
 		v8::Handle<v8::Array> rows = v8::Handle<v8::Array>::Cast(args[0]);
@@ -373,7 +445,7 @@ class NodeCurl
 			}
 		}
 		curl_easy_setopt(node_curl->curl, CURLOPT_HTTPPOST, node_curl->httppost.first);
-		return args.This();
+		NanReturnValue(args.This());
 	}
 
 	static curl_slist * value_to_slist(v8::Handle<v8::Value> value)
@@ -395,7 +467,8 @@ class NodeCurl
 	}
 
 
-	static v8::Handle<v8::Value> raise(const char *data, const char *reason = NULL)
+	static 
+	v8::Handle<v8::Value> raise(const char *data, const char *reason = NULL)
 	{
 		static char message[256];
 		const char *what = data;
@@ -416,22 +489,24 @@ class NodeCurl
 			const CurlOption & option = options[i];
 			node_options->Set(
 				v8::String::NewSymbol(option.name),
-				v8::Integer::New(option.value)
+			    v8::Number::New(option.value)
 			);
 		}
-		t->Set(v8::String::NewSymbol(group_name), node_options);
+		t->Set(NanSymbol(group_name), node_options);
 	}
 
 	// node js functions
-	static v8::Handle<v8::Value> New(const v8::Arguments & args)
+	static NAN_METHOD(New)
 	{
+		NanScope();
 		new NodeCurl(args.This());
-		return args.This();
+		NanReturnValue(args.This());
 	}
 
 	// int process()
-	static v8::Handle<v8::Value> process(const v8::Arguments & args)
+	static NAN_METHOD(process)
 	{
+		NanScope();
 		transfered = 0;
 		if (running_handles > 0)
 		{
@@ -444,7 +519,7 @@ class NodeCurl
 
 			if (code != CURLM_OK)
 			{
-				return raise("curl_multi_perform failed", curl_multi_strerror(code));
+				NanReturnValue(raise("curl_multi_perform failed", curl_multi_strerror(code)));
 			}
 
 			int msgs = 0;
@@ -459,7 +534,7 @@ class NodeCurl
 					curl->in_curlm = false;
 					if (code != CURLM_OK)
 					{
-						return raise("curl_multi_remove_handle failed", curl_multi_strerror(code));
+						NanReturnValue(raise("curl_multi_remove_handle failed", curl_multi_strerror(code)));
 					}
 
 					if (msg_copy.data.result == CURLE_OK)
@@ -469,33 +544,36 @@ class NodeCurl
 				}
 			}
 		}
-		return v8::Integer::New(transfered + (int)(running_handles > 0));
+		NanReturnValue(v8::Number::New(transfered + (int)(running_handles > 0)));
 	}
 
 	// perform()
-	static v8::Handle<v8::Value> perform(const v8::Arguments & args)
+	static NAN_METHOD(perform)
 	{
+                NanScope();
+
 		NodeCurl *curl = unwrap(args.This());
 		if (!curl)
-			return raise("curl is closed.");
+			NanReturnValue(raise("curl is closed."));
 
 		if (curl->in_curlm)
-			return raise("curl session is running.");
+			NanReturnValue(raise("curl session is running."));
 
 		CURLMcode code = curl_multi_add_handle(curlm, curl->curl);
 		if (code != CURLM_OK)
 		{
-			return raise("curl_multi_add_handle failed", curl_multi_strerror(code));
+			NanReturnValue(raise("curl_multi_add_handle failed", curl_multi_strerror(code)));
 		}
 		curl->in_curlm = true;
 		++running_handles;
 
-		return args.This();
+		NanReturnValue(args.This());
 	}
 
-	static v8::Handle<v8::Value> get_count(const v8::Arguments & args )
+	static NAN_METHOD(get_count)
 	{
-		return v8::Integer::New(count);
+		NanScope();
+		NanReturnValue(v8::Number::New(count));
 	}
 
     public:
@@ -515,7 +593,8 @@ class NodeCurl
 		}
 
 		// Initialize node-curl
-		v8::Handle<v8::FunctionTemplate> t = v8::FunctionTemplate::New(New);
+		v8::Local<v8::FunctionTemplate> t = v8::FunctionTemplate::New(NodeCurl::New);
+		t->SetClassName(NanSymbol("Curl"));
 		t->InstanceTemplate()->SetInternalFieldCount(1);
 
 		// Set prototype methods
@@ -525,10 +604,21 @@ class NodeCurl
 		NODE_SET_PROTOTYPE_METHOD(t , "setopt_slist_" , setopt_slist);
 		NODE_SET_PROTOTYPE_METHOD(t , "setopt_httppost_" , setopt_httppost);
 
+#if 0
+ 		t->PrototypeTemplate()->Set(NanSymbol("getinfo_int_"),
+			v8::FunctionTemplate::New(getinfo_int)->GetFunction());
+ 		t->PrototypeTemplate()->Set(NanSymbol("getinfo_str_"),
+			v8::FunctionTemplate::New(getinfo_str)->GetFunction());
+ 		t->PrototypeTemplate()->Set(NanSymbol("getinfo_double_"),
+			v8::FunctionTemplate::New(getinfo_double)->GetFunction());
+ 		t->PrototypeTemplate()->Set(NanSymbol("getinfo_slist"),
+			v8::FunctionTemplate::New(getinfo_slist)->GetFunction());
+#else
 		NODE_SET_PROTOTYPE_METHOD(t , "getinfo_int_"    , getinfo_int);
 		NODE_SET_PROTOTYPE_METHOD(t , "getinfo_str_"    , getinfo_str);
 		NODE_SET_PROTOTYPE_METHOD(t , "getinfo_double_" , getinfo_double);
 		NODE_SET_PROTOTYPE_METHOD(t , "getinfo_slist_"  , getinfo_slist);
+#endif
 
 		NODE_SET_PROTOTYPE_METHOD(t, "close_", close);
 
@@ -591,7 +681,8 @@ class NodeCurl
 
 		NODE_CURL_EXPORT(httppost_options);
 
-		target->Set(v8::String::NewSymbol("Curl"), t->GetFunction());
+		NanInitPersistent(v8::Function, constructor, t->GetFunction());
+		target->Set(NanSymbol("Curl"), NanPersistentToLocal(constructor));
 		return target;
 	}
 };
